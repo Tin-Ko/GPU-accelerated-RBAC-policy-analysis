@@ -1,5 +1,5 @@
 can_assign
-r1, r2, r3, r4
+r1, r2&r5, r3, r4
 r3, r4, NULL, r5
 r1, r3, NULL, r6
 r1, r4, NULL, r2

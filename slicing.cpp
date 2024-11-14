@@ -3,6 +3,7 @@
 #include <map>
 #include <vector>
 #include <sstream>
+#include <fstream>
 using namespace std;
 
 struct can_assign{
@@ -17,55 +18,48 @@ struct can_revoke{
     map<string, vector<int>> targetRoles;
 };
 
-struct returnStruct{
-    vector<string> relPosRoles;
-    vector<string> relNegRoles;
+struct relRulesAndRoles{
     vector<int> relAssignRules;
     vector<int> relRevokeRules;
+    vector<string> relPosRoles;
+    vector<string> relNegRoles;
 };
 
+struct Rules{
+    map<int, vector<string>> assignRules;
+    map<int, vector<string>> revokeRules;
+};
+
+// functions
 bool isNotSeen(string target, vector<string> vec);
 bool isNotIn(int target, vector<int> vec);
 vector<string> splitString(string str, char delimiter);
-returnStruct slicing(vector<string> goal, can_assign assign, can_revoke revoke, map<int, vector<string>> assignRules, map<int, vector<string>> revokeRules);
-void printReturnStruct(const returnStruct& rs);
+relRulesAndRoles slicing(vector<string> goal, string fileName);
+void printSlicingResult(relRulesAndRoles rs);
+Rules readRules(string fileName);
+can_assign parseAssignRules(map<int, vector<string>> assignRules);
+can_revoke parseRevokeRules(map<int, vector<string>> revokeRules);
 
 int main(){
-    can_assign canAssign;
-    can_revoke canRevoke;
-    canAssign.admins["r1"] = {0, 2, 3};
-    canAssign.admins["r3"] = {1};
-    canAssign.posRoles["r2"] = {0};
-    canAssign.posRoles["r4"] = {1, 3};
-    canAssign.posRoles["r3"] = {2, 3};
-    canAssign.negRoles["r3"] = {0};
-    canAssign.targetRoles["r4"] = {0};
-    canAssign.targetRoles["r5"] = {1};
-    canAssign.targetRoles["r6"] = {2};
-    canAssign.targetRoles["r2"] = {3};
-    canRevoke.admins["r6"] = {0};
-    canRevoke.admins["r4"] = {1};
-    canRevoke.targetRoles["r3"] = {0};
-    canRevoke.targetRoles["r2"] = {1};
     vector<string> goal = {"r4", "r6"};
-    map<int, vector<string>> assignRules;
-    map<int, vector<string>> revokeRules;
-    assignRules[0] = {"r1", "r2", "r3", "r4"};
-    assignRules[1] = {"r3", "r4", "NULL", "r5"};
-    assignRules[2] = {"r1", "r3", "NULL", "r6"};
-    assignRules[3] = {"r1", "r3", "NULL", "r2"};
-    revokeRules[0] = {"r6", "r3"};
-    revokeRules[1] = {"r4", "r2"};
 
-    returnStruct returnVal = slicing(goal, canAssign, canRevoke, assignRules, revokeRules);
+    // apply slicing
+    relRulesAndRoles rel = slicing(goal, "input.txt");
 
-    printReturnStruct(returnVal);
+    printSlicingResult(rel);
 
     return 0;
 }
 
-returnStruct slicing(vector<string> goal, can_assign assign, can_revoke revoke, map<int, vector<string>> assignRules, map<int, vector<string>> revokeRules){
-    // goal = {"r4", "r6"}
+relRulesAndRoles slicing(vector<string> goal, string fileName){
+    
+    Rules retRules = readRules(fileName);
+    map<int, vector<string>> assignRules = retRules.assignRules;
+    map<int, vector<string>> revokeRules = retRules.revokeRules;
+    
+    can_assign canAssign = parseAssignRules(assignRules);
+    can_revoke canRevoke = parseRevokeRules(revokeRules);
+    
     vector<string> relPosRoles = goal;
     vector<string> relNegRoles;
     vector<int> relAssignRules;
@@ -77,8 +71,8 @@ returnStruct slicing(vector<string> goal, can_assign assign, can_revoke revoke, 
         workSet.pop_back();
         seen.push_back(currentProcessingRole);
         // make sure that r exists
-        if(assign.targetRoles.count(currentProcessingRole) > 0){
-            vector<int> currentRelRules = assign.targetRoles[currentProcessingRole];
+        if(canAssign.targetRoles.count(currentProcessingRole) > 0){
+            vector<int> currentRelRules = canAssign.targetRoles[currentProcessingRole];
             // for all can_assign rules that target is r
             for (int i = 0; i < currentRelRules.size(); i++){
                 // add current rule into relRules
@@ -113,8 +107,8 @@ returnStruct slicing(vector<string> goal, can_assign assign, can_revoke revoke, 
         for (int i = 0; i < relNegRoles.size(); i++){
             string currentRelNegRoles = relNegRoles[i];
             // for all can_revoke rules that target is negative role
-            if(revoke.targetRoles.count(currentRelNegRoles) > 0){
-                vector<int> currentNegRelRules = revoke.targetRoles[currentRelNegRoles];
+            if(canRevoke.targetRoles.count(currentRelNegRoles) > 0){
+                vector<int> currentNegRelRules = canRevoke.targetRoles[currentRelNegRoles];
                 for(int j = 0; j < currentNegRelRules.size(); j++){
                     if(isNotIn(currentNegRelRules[j], relRevokeRules)){
                         relRevokeRules.push_back(currentNegRelRules[j]);
@@ -124,20 +118,10 @@ returnStruct slicing(vector<string> goal, can_assign assign, can_revoke revoke, 
                         workSet.push_back(revokeRules[j][0]);
                     }
                 }
-                // for (int j = 0; j < currentRelNegRoles.size(); j++){
-                //     if (isNotSeen(revokeRules[j][0], seen)){
-                //         relPosRoles.push_back(revokeRules[j][0]);
-                //         workSet.push_back(revokeRules[j][0]);
-                //     }
-                // }
             }
         }
     }
-    returnStruct returnVal;
-    returnVal.relAssignRules = relAssignRules;
-    returnVal.relRevokeRules = relRevokeRules;
-    returnVal.relPosRoles = relPosRoles;
-    returnVal.relNegRoles = relNegRoles;
+    relRulesAndRoles returnVal = {relAssignRules, relRevokeRules, relPosRoles, relNegRoles};
     return returnVal;
 }
 
@@ -171,7 +155,7 @@ vector<string> splitString(string str, char delimiter){
     return tokens;
 }
 
-void printReturnStruct(const returnStruct& rs) {
+void printSlicingResult(relRulesAndRoles rs){
     cout << "relPosRoles: ";
     for (const auto& role : rs.relPosRoles) {
         cout << role << " ";
@@ -195,4 +179,79 @@ void printReturnStruct(const returnStruct& rs) {
         cout << rule << " ";
     }
     cout << endl;
+}
+
+Rules readRules(string fileName){
+    ifstream file(fileName);
+    string line;
+    map<int, vector<string>> assignRules;
+    map<int, vector<string>> revokeRules;
+    bool isAssign = false, isRevoke = false;
+    int assignIndex = 0, revokeIndex = 0;
+
+    while (getline(file, line)) {
+        if (line == "can_assign") {
+            isAssign = true;
+            isRevoke = false;
+            continue;
+        } else if (line == "can_revoke") {
+            isAssign = false;
+            isRevoke = true;
+            continue;
+        }
+
+        vector<string> rule;
+        stringstream ss(line);
+        string item;
+
+        while (getline(ss, item, ',')) {
+            item.erase(0, item.find_first_not_of(" \t\n\r"));
+            item.erase(item.find_last_not_of(" \t\n\r") + 1);
+            rule.push_back(item);
+        }
+
+        if (isAssign) {
+            assignRules[assignIndex++] = rule;
+        } else if (isRevoke) {
+            revokeRules[revokeIndex++] = rule;
+        }
+    }
+
+    file.close();
+    Rules retRules = {assignRules, revokeRules};
+    return retRules;
+}
+
+can_assign parseAssignRules(map<int, vector<string>> assignRules){
+    can_assign result;
+    for (const auto& rule : assignRules) {
+        const auto& role = rule.second;
+
+        string admin = role[0];
+        string posRole = role[1];
+        string negRole = role[2];
+        string targetRole = role[3];
+
+        result.admins[admin].push_back(rule.first);
+        result.posRoles[posRole].push_back(rule.first);
+        result.negRoles[negRole].push_back(rule.first);
+        result.targetRoles[targetRole].push_back(rule.first);
+    }
+
+    return result;
+}
+
+can_revoke parseRevokeRules(map<int, vector<string>> revokeRules){
+    can_revoke result;
+    for (const auto& rule : revokeRules) {
+        const auto& role = rule.second;
+
+        string admin = role[0];
+        string targetRole = role[1];
+
+        result.admins[admin].push_back(rule.first);
+        result.targetRoles[targetRole].push_back(rule.first);
+    }
+
+    return result;
 }

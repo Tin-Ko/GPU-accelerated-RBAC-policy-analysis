@@ -2,8 +2,8 @@
 #include <cuda_runtime.h>
 using namespace std;
 
-#define NUM_USERS 8
-#define NUM_ROLES 5
+#define NUM_ROLES 8
+#define NUM_USERS 5
 #define NUM_CA_RULES 5
 
 __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* relNeg, int numUsers, int numRules, int numRoles) {
@@ -27,13 +27,21 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
             if(threadIdx.x == 3){
                 cond1Result[idx%8] = (relCanAssign[idx + 32*i] && (relPos[idx%8] && !relNeg[idx%8]));
             }
+            __syncthreads();
 
             // Cond2
+            __shared__ bool ctl_1;
             if(threadIdx.x == 1){
-                int ctl_1 = 0;
+                ctl_1 = 0;
+            }
+            __syncthreads();
+            if(threadIdx.x == 1){
                 if((!relCanAssign[idx + 32*i] || s[j*8 + idx%8]) == 0){
-                    ctl_1 = 1;
+                    atomicExch(&ctl_1, 1);
                 }
+            }
+            __syncthreads();
+            if(threadIdx.x == 1){
                 if(ctl_1){
                     cond2Result[idx%8] = 0;
                 }
@@ -41,13 +49,21 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
                     cond2Result[idx%8] = 1;
                 }
             }
+            __syncthreads();
 
             // Cond3
+            __shared__ bool ctl_2;
             if(threadIdx.x == 2){
-                int ctl_2 = 1;
+                ctl_2 = 1;
+            }
+            __syncthreads();
+            if(threadIdx.x == 2){
                 if((s[j*8 + idx%8] && relCanAssign[idx + 32*i]) == 1){
-                    ctl_2 = 0;
+                    atomicExch(&ctl_2, 0);
                 }
+            }
+            __syncthreads();
+            if(threadIdx.x == 2){
                 if(ctl_2 == 0){
                     cond3Result[idx%8] = 0;
                 }
@@ -55,13 +71,21 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
                     cond3Result[idx%8] = 1;
                 }
             }
+            __syncthreads();
 
             // Cond4
+            __shared__ bool ctl_3;
             if(threadIdx.x == 0){
-                int ctl_3 = 0;
+                ctl_3 = 0;
+            }
+            __syncthreads();
+            if(threadIdx.x == 0){
                 if((s[idx%8] && relCanAssign[idx + 32*i]) == 1){
-                    ctl_3 = 1;
+                    atomicExch(&ctl_3, 1);
                 }
+            }
+            __syncthreads();
+            if(threadIdx.x == 0){
                 if(ctl_3){
                     cond4Result[idx%8] = 1;
                 }
@@ -69,7 +93,6 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
                     cond4Result[idx%8] = 0;
                 }
             }
-
             __syncthreads();
 
             // All condition combined
@@ -80,10 +103,10 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
                 s[idx%8] = s[idx%8] || allConditions[idx%8];
 
             }
-
+            __syncthreads();
             delete[] cond1Result;
             delete[] cond2Result;
-            delete[] cond3Result;
+            delete[] cond3Result
             delete[] cond4Result;
             delete[] allConditions;
         }
@@ -91,7 +114,7 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
 }
 
 int main() {
-    bool CA[NUM_CA_RULES][4][NUM_USERS] = {
+    bool CA[NUM_CA_RULES][4][NUM_ROLES] = {
         {
             {1, 0, 0, 0, 0, 0, 0, 0},
             {0, 1, 0, 0, 0, 0, 0, 0},
@@ -124,7 +147,7 @@ int main() {
         }
     };
 
-    bool s[NUM_CA_RULES][NUM_USERS] = {
+    bool s[NUM_USERS][NUM_ROLES] = {
         {1, 1, 1, 0, 0, 1, 0, 1},
         {1, 0, 1, 0, 0, 0, 0, 0},
         {0, 1, 0, 0, 0, 0, 0, 1},
@@ -132,28 +155,28 @@ int main() {
         {0, 0, 0, 0, 0, 1, 0, 0}
     };
 
-    bool relPos[NUM_USERS] = {1, 1, 1, 1, 1, 1, 0, 1};
-    bool relNeg[NUM_USERS] = {0, 0, 1, 0, 0, 0, 0, 0};
+    bool relPos[NUM_ROLES] = {1, 1, 1, 1, 1, 1, 0, 1};
+    bool relNeg[NUM_ROLES] = {0, 0, 1, 0, 0, 0, 0, 0};
 
     bool* d_relPos;
     bool* d_relNeg;
     bool* d_s;
     bool* d_CA;
 
-    cudaMalloc(&d_relPos, NUM_USERS * sizeof(bool));
-    cudaMalloc(&d_relNeg, NUM_USERS * sizeof(bool));
-    cudaMalloc(&d_s, NUM_CA_RULES * NUM_USERS * sizeof(bool));
-    cudaMalloc((void**)&d_CA, NUM_CA_RULES * 4 * NUM_USERS * sizeof(bool));
+    cudaMalloc(&d_relPos, NUM_ROLES * sizeof(bool));
+    cudaMalloc(&d_relNeg, NUM_ROLES * sizeof(bool));
+    cudaMalloc(&d_s, NUM_CA_RULES * NUM_ROLES * sizeof(bool));
+    cudaMalloc((void**)&d_CA, NUM_CA_RULES * 4 * NUM_ROLES * sizeof(bool));
 
-    cudaMemcpy(d_relPos, relPos, NUM_USERS * sizeof(bool), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_relNeg, relNeg, NUM_USERS * sizeof(bool), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_s, s, NUM_CA_RULES * NUM_USERS * sizeof(bool), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_CA, CA, NUM_CA_RULES * 4 * NUM_USERS * sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_relPos, relPos, NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_relNeg, relNeg, NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_s, s, NUM_CA_RULES * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_CA, CA, NUM_CA_RULES * 4 * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
 
     dim3 gridDim(1, 1);
     dim3 blockDim(4, 8);
 
-    closure_kernel<<<gridDim, blockDim>>>(d_s, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES);
+    closure_kernel<<<gridDim, blockDim>>>(d_s, d_CA, d_relPos, d_relNeg, NUM_ROLES, NUM_CA_RULES, NUM_USERS);
     
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -163,10 +186,10 @@ int main() {
 
     cudaDeviceSynchronize();
 
-    cudaMemcpy(s, d_s, NUM_CA_RULES * NUM_USERS * sizeof(bool), cudaMemcpyDeviceToHost);
+    cudaMemcpy(s, d_s, NUM_CA_RULES * NUM_ROLES * sizeof(bool), cudaMemcpyDeviceToHost);
 
     for (int i = 0; i < NUM_CA_RULES; i++) {
-        for (int j = 0; j < NUM_USERS; j++) {
+        for (int j = 0; j < NUM_ROLES; j++) {
             cout << s[i][j] << " ";
         }
         cout << endl;

@@ -11,7 +11,7 @@ EXE = $(BUILD_DIR)/analysis
 SOURCES := $(wildcard $(SOURCE_DIR)/*.cu)
 
 
-OBJS := $(patsubst $(SOURCE_DIR/%.cu), $(OBJ_DIR)/%.o, $(SOURCES))
+OBJS := $(patsubst $(SOURCE_DIR)/%.cu, $(OBJ_DIR)/%.o, $(SOURCES))
 # OBJS += $(patsubst $(SOURCE_DIR/%.c), $(OBJ_DIR)/%.o, $(SOURCES))
 
 CFLAGS = -I$(INCLUDE_DIR) -Xcompiler -Wall

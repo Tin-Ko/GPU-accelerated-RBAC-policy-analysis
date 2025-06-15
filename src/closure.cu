@@ -1,11 +1,6 @@
 #include <iostream>
 #include <cuda_runtime.h>
-
-
-#define NUM_USERS 5
-#define NUM_ROLES 8
-#define NUM_CA_RULES 5
-
+#include "globals.h"
 
 __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* relNeg, int numUsers, int numRules, int numRoles) {
     // int tid = threadIdx.x;
@@ -16,10 +11,15 @@ __global__ void closure_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* 
         return;
     }
 
+    // Size of condition flags is NUM_USERS * NUM_CA_RULES, because each thread is responsible for a (user, rule, role)
     __shared__ int cond2Flag[NUM_USERS * NUM_CA_RULES];
     __shared__ int cond3Flag[NUM_USERS * NUM_CA_RULES];
     __shared__ int cond4Flag[NUM_USERS * NUM_CA_RULES];
 
+    // user * numRules + rule is the (user, rule)
+    // for condition 2, if 0 in result, it is set to 1, and never to be changed
+    // for condition 3, if 1 in result, it is set to 1, and never to be changed
+    // for condition 4, if 1 in result, it is set to 1, and never to be changed
     if (threadIdx.z == 0) cond2Flag[user * numRules + rule] = 0;
     if (threadIdx.z == 0) cond3Flag[user * numRules + rule] = 0;
     if (threadIdx.z == 0) cond4Flag[user * numRules + rule] = 0;

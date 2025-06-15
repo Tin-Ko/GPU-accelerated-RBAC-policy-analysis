@@ -1,5 +1,5 @@
 NVCC = nvcc
-CC = gcc
+CXX = g++
 
 INCLUDE_DIR = include
 SOURCE_DIR = src
@@ -7,30 +7,39 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 EXE = $(BUILD_DIR)/analysis
 
-# SOURCES := $(wildcard $(SOURCE_DIR)/*.cu) $(wildcard $(SOURCE_DIR)/*.c)
-SOURCES := $(wildcard $(SOURCE_DIR)/*.cu)
+CU_SOURCES := $(wildcard $(SOURCE_DIR)/*.cu)
+CPP_SOURCES := $(wildcard $(SOURCE_DIR)/*.cpp)
+# SOURCES := $(wildcard $(SOURCE_DIR)/*.cu)
 
 
-OBJS := $(patsubst $(SOURCE_DIR)/%.cu, $(OBJ_DIR)/%.o, $(SOURCES))
-# OBJS += $(patsubst $(SOURCE_DIR/%.c), $(OBJ_DIR)/%.o, $(SOURCES))
+CU_OBJS := $(patsubst $(SOURCE_DIR)/%.cu, $(OBJ_DIR)/%.cu.o, $(CU_SOURCES))
+CPP_OBJS := $(patsubst $(SOURCE_DIR)/%.cpp, $(OBJ_DIR)/%.cpp.o, $(CPP_SOURCES))
 
-CFLAGS = -I$(INCLUDE_DIR) -Xcompiler -Wall
+OBJS := $(CU_OBJS) $(CPP_OBJS)
+
+NVCCFLAGS = -I$(INCLUDE_DIR) -Xcompiler -Wall
+CFLAGS = -I$(INCLUDE_DIR) -Wall
 LDFLAGS = 
 
+# Build target
 all: $(EXE)
 
+# Create build directories if doesn't exist
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-$(OBJ_DIR)/%.o: $(SOURCE_DIR)/%.cu | $(OBJ_DIR) 
-	$(NVCC) $(CFLAGS) -c $< -o $@
+# Compile CUDA source files
+$(OBJ_DIR)/%.cu.o: $(SOURCE_DIR)/%.cu | $(OBJ_DIR) 
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
-# $(OBJ_DIR)/%.o: $(SOURCE_DIR)/%.c | $(OBJ_DIR)
-# 	$(CC) $(CFLAGS) -c $< -o $@
+# Compile C++ source files
+$(OBJ_DIR)/%.cpp.o: $(SOURCE_DIR)/%.cpp | $(OBJ_DIR)
+	$(CXX) $(CFLAGS) -c $< -o $@
 
+# Link all objects into final executable
 $(EXE): $(OBJS)
 	$(NVCC) $(LDFLAGS) $^ -o $@
 
-
+# Clean build
 clean:
 	rm -rf $(OBJ_DIR) $(EXE)

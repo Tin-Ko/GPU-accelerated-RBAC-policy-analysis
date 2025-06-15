@@ -1,2 +1,0 @@
--I./include
---cuda-path=/usr/lib/cuda

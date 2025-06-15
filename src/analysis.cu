@@ -1,136 +1,86 @@
 #include <cuda_runtime.h>
-#include "closure.cuh"
 #include <iostream>
+#include <vector>
+#include "closure.cuh"
+#include "globals.h"
+#include "utils.h"
 
 using namespace std;
 
 
-#define NUM_USERS 5
-#define NUM_ROLES 8
-#define NUM_CA_RULES 5
 
-
-__global__ void analysis_kernel(bool* s, bool* relCanAssign, bool* relPos, bool* relNeg, int numUsers, int numRules, int numRoles) {
-    int idx = threadIdx.x * blockDim.y + threadIdx.y;
-
-    // for all users
-    for (int i = 1; i <= numUsers; i++) {
-        // for all rules
-        for (int j = 0; j < numRules; j++) {
-            __shared__ bool* cond1Result;
-            cond1Result= new bool[numRoles];
-
-            __shared__ bool* cond2Result;
-            cond2Result = new bool[numRoles];
-
-            __shared__ bool* cond3Result;
-            cond3Result = new bool[numRoles];
-
-            __shared__ bool* cond4Result;
-            cond4Result = new bool[numRoles];
-
-            __shared__ bool* allConditions;
-            allConditions = new bool[numRoles];
-
-            __shared__ int ctl_1;
-            __shared__ int ctl_2;
-            __shared__ int ctl_3;
-
-            int currentRole = idx % 8;
-
-            // Cond1
-            if (threadIdx.x == 3) {
-                cond1Result[currentRole] = 0;
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 3) {
-                cond1Result[currentRole] = (relCanAssign[idx + 32 * j] && (relPos[currentRole] || relNeg[currentRole]));
-            }
-            __syncthreads();
-
-            // Cond2
-            if (threadIdx.x == 1) {
-                cond2Result[currentRole] = 0;
-                ctl_1 = 0;
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 1) {
-                if ((!relCanAssign[idx + 32 * j] || s[i * 8 + currentRole]) == 0) {
-                    atomicExch(&ctl_1, 1);
-                }
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 1) {
-                if (ctl_1) {
-                    cond2Result[currentRole] = 0;
-                } else {
-                    cond2Result[currentRole] = 1;
-                }
-            }
-            __syncthreads();
-
-            // Cond3
-            if (threadIdx.x == 2) {
-                cond3Result[currentRole] = 0;
-                ctl_2 = 1;
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 2) {
-                if ((s[i * 8 + currentRole] && relCanAssign[idx + 32 * j]) == 1) {
-                    atomicExch(&ctl_2, 0);
-                }
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 2) {
-                if (ctl_2 == 0) {
-                    cond3Result[currentRole] = 0;
-                } else {
-                    cond3Result[currentRole] = 1;
-                }
-            }
-            __syncthreads();
-
-            // Cond4
-            if (threadIdx.x == 0) {
-                cond4Result[currentRole] = 0;
-                ctl_3 = 0;
-            }
-
-            if (threadIdx.x == 0) {
-                if ((s[currentRole] && relCanAssign[idx + 32 * j]) == 1) {
-                    atomicExch(&ctl_3, 1);
-                }
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 0) {
-                if (ctl_3) {
-                    cond4Result[currentRole] = 1;
-                } else {
-                    cond4Result[currentRole] = 0;
-                }
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 0) {
-                allConditions[currentRole] = 0;
-            }
-            __syncthreads();
-
-            if (threadIdx.x == 0) {
-                allConditions[currentRole] = cond1Result[currentRole] && cond2Result[currentRole] && cond3Result[currentRole] && cond4Result[currentRole];
-                s[currentRole + i * 8] = s[currentRole + i * 8] || allConditions[currentRole];
-                s[currentRole] = s[currentRole] || allConditions[currentRole];
-            }
-            __syncthreads();
-        }
-    }
-}
+// __global__ void analysis_kernel(
+//     bool* states,   // current existing states
+//     bool* worksetIn, bool* worksetOut, int* worksetIdx, int* worksetSize,
+//     bool* s, bool* relCanAssign, bool* relPos, bool* relNeg,
+//     int numUsers, int numRules, int numRoles
+// ) {
+//     int user = threadIdx.x + 1;
+//     int rule = threadIdx.y;
+//     int stateIndex = blockIdx.x;    // This thread deals with worksetIn[stateIndex]
+//
+//     if (user >= numUsers || rule >= numRules) {
+//         return;
+//     }
+//
+//     __shared__ bool
+//
+//     __shared__ int cond2Flag[NUM_USERS * NUM_CA_RULES];
+//     __shared__ int cond3Flag[NUM_USERS * NUM_CA_RULES];
+//     __shared__ int cond4Flag[NUM_USERS * NUM_CA_RULES];
+//
+//     if (threadIdx.z == 0) cond2Flag[user * numRules + rule] = 0;
+//     if (threadIdx.z == 0) cond3Flag[user * numRules + rule] = 0;
+//     if (threadIdx.z == 0) cond4Flag[user * numRules + rule] = 0;
+//
+//     __syncthreads();
+//
+//     int role = threadIdx.z;
+//
+//     bool cond1 = false;
+//     bool cond2 = false;
+//     bool cond3 = false;
+//     bool cond4 = false;
+//
+//     // Cond1 and Cond2
+//     if (role < numRoles) {
+//         cond1 = (relCanAssign[numRoles * 4 * rule + numRoles * 3 + role] && (relPos[role] && relNeg[role]));
+//     }
+//
+//     // Cond2
+//     if (role < numRoles && (!relCanAssign[numRoles * 4 * rule + numRoles + role] || s[user * numRoles + role]) == 0) {
+//         atomicExch(&cond2Flag[user * numRules + rule], 1);
+//     }
+//
+//
+//     // Cond3
+//     if (role < numRoles && (s[user * numRoles + role] && relCanAssign[numRoles * 4 * rule + numRoles * 2 + role])) {
+//         atomicExch(&cond3Flag[user * numRules + rule], 1);
+//     }
+//
+//
+//     // Cond4
+//     if (role < numRoles && s[role] && relCanAssign[numRoles * 4 * rule + role]) {
+//         atomicExch(&cond4Flag[user * numRules + rule], 1);
+//     }
+//
+//     __syncthreads();
+//
+//     if (cond2Flag[user * numRules + rule] == 1) cond2 = false;
+//     if (cond3Flag[user * numRules + rule] == 1) cond3 = false;
+//     if (cond4Flag[user * numRules + rule] == 1) cond4 = true;
+//
+//
+//     bool allCond = cond1 && cond2 && cond3 && cond4;
+//
+//     if (allCond) {
+//         // Check if state is reached
+//         // Add closure(state) to the worksetOut
+//     }
+//
+//     __syncthreads();
+//
+// }
 
 
 int main() {
@@ -178,10 +128,20 @@ int main() {
     bool relPos[NUM_ROLES] = {1, 1, 1, 1, 1, 1, 0, 1};
     bool relNeg[NUM_ROLES] = {0, 0, 1, 0, 0, 0, 0, 0};
 
+    bool worksetIn[MAX_STATES_WORKSET][NUM_USERS][NUM_ROLES] = {};
+    bool worksetOut[MAX_STATES_WORKSET][NUM_USERS][NUM_ROLES] = {};
+
+    //loadWorkset(worksetIn, s);
+    loadWorkset(&worksetIn[0][0][0], &s[0][0]);
+
+    vector<bool*> States;
+
     bool* d_relPos;
     bool* d_relNeg;
     bool* d_s;
     bool* d_CA;
+    bool* d_worksetIn;
+    bool* d_worksetOut;
 
     cudaMalloc(&d_relPos, NUM_ROLES * sizeof(bool));
     cudaMalloc(&d_relNeg, NUM_ROLES * sizeof(bool));
@@ -197,7 +157,7 @@ int main() {
     dim3 gridDim(1);
     dim3 blockDim(NUM_USERS, NUM_CA_RULES, NUM_ROLES);
 
-    closure_kernel<<<gridDim, blockDim>>>(d_s, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES);
+    // closure_kernel<<<gridDim, blockDim>>>(d_s, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES);
 
     /*
     while (!workSet.empty()) {
@@ -231,3 +191,6 @@ int main() {
 
     return 0;
 }
+
+
+

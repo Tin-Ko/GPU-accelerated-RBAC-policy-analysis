@@ -5,7 +5,7 @@ INCLUDE_DIR = include
 SOURCE_DIR = src
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
-EXE = $(BUILD_DIR)/analysis
+EXE = $(BUILD_DIR)/main
 
 CU_SOURCES := $(wildcard $(SOURCE_DIR)/*.cu)
 CPP_SOURCES := $(wildcard $(SOURCE_DIR)/*.cpp)

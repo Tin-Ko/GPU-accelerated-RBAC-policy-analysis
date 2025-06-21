@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
 
-void loadWorkset(bool*, const bool*);
+void loadWorkset(bool *, bool *, int);
 
-std::string getStateAscii(const bool*);
+std::string getStateAscii(bool *);

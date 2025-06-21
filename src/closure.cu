@@ -3,10 +3,14 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-__global__ void closure_kernel(bool *s, bool *relCanAssign, bool *relPos, bool *relNeg, int numUsers, int numRules, int numRoles) {
+__global__ void closure_kernel(bool *workset,
+                               bool *relCanAssign, bool *relPos, bool *relNeg,
+                               int numUsers, int numRules, int numRoles) {
     // int tid = threadIdx.x;
     int user = threadIdx.x + 1; // Starts from user 1
     int rule = threadIdx.y;
+    int stateIndex = blockIdx.x;
+    int stateSize = numUsers * numRoles;
 
     if (user >= numUsers || rule >= numRules) {
         return;
@@ -38,22 +42,25 @@ __global__ void closure_kernel(bool *s, bool *relCanAssign, bool *relPos, bool *
     bool cond4 = false;
 
     // Cond1 and Cond2
+    // Cond1
     if (role < numRoles) {
+        // ruleSize =  numRoles * 4
+        // relCanAssign[numRoles * 4 * rule + numRoles * 3 + role] == relCanAssign[rule][3][role] => CA[3]
         cond1 = (relCanAssign[numRoles * 4 * rule + numRoles * 3 + role] && (relPos[role] && !relNeg[role]));
     }
 
     // Cond2
-    if (role < numRoles && (!relCanAssign[numRoles * 4 * rule + numRoles + role] || s[user * numRoles + role]) == 0) {
+    if (role < numRoles && (!relCanAssign[numRoles * 4 * rule + numRoles + role] || workset[stateIndex * stateSize + user * numRoles + role]) == 0) {
         atomicExch(&cond2Flag[user * numRules + rule], 1);
     }
 
     // Cond3
-    if (role < numRoles && (s[user * numRoles + role] && relCanAssign[numRoles * 4 * rule + numRoles * 2 + role])) {
+    if (role < numRoles && (workset[stateIndex * stateSize + user * numRoles + role] && relCanAssign[numRoles * 4 * rule + numRoles * 2 + role])) {
         atomicExch(&cond3Flag[user * numRules + rule], 1);
     }
 
     // Cond4
-    if (role < numRoles && s[role] && relCanAssign[numRoles * 4 * rule + role]) {
+    if (role < numRoles && workset[stateIndex * stateSize + role] && relCanAssign[numRoles * 4 * rule + role]) {
         atomicExch(&cond4Flag[user * numRules + rule], 1);
     }
 
@@ -69,8 +76,8 @@ __global__ void closure_kernel(bool *s, bool *relCanAssign, bool *relPos, bool *
     bool allCond = cond1 && cond2 && cond3 && cond4;
 
     if (allCond) {
-        s[user * numRoles + role] = s[user * numRoles + role] || allCond;
-        s[role] = s[role] || allCond;
+        workset[stateIndex * stateSize + user * numRoles + role] = workset[stateIndex * stateSize + user * numRoles + role] || allCond;
+        workset[stateIndex * stateSize + role] = workset[stateIndex * stateSize + role] || allCond;
     }
 
     __syncthreads();

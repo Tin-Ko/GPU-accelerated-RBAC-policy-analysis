@@ -56,6 +56,12 @@ int main() {
     bool worksetIn[MAX_STATES_WORKSET * NUM_USERS * NUM_ROLES] = {};
     // bool worksetOut[MAX_STATES_WORKSET * 5][NUM_USERS][NUM_ROLES] = {};
     bool worksetOut[MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES];
+    int worksetOutIndex = -1;
+
+    int goalUser = 4;
+    int goalRole = 5;
+
+    int goalReached = 1;
 
     loadWorkset(worksetIn, s, 0);
 
@@ -68,6 +74,10 @@ int main() {
     bool *d_worksetIn;
     bool *d_worksetOut;
 
+    int *d_worksetOutIndex;
+
+    int *d_goalReached;
+
     cudaMalloc(&d_relPos, NUM_ROLES * sizeof(bool));
     cudaMalloc(&d_relNeg, NUM_ROLES * sizeof(bool));
 
@@ -76,24 +86,38 @@ int main() {
 
     cudaMalloc(&d_worksetIn, MAX_STATES_WORKSET * NUM_USERS * NUM_ROLES * sizeof(bool));
     cudaMalloc(&d_worksetOut, MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES * sizeof(bool));
+    cudaMalloc(&d_worksetOutIndex, sizeof(int));
+
+    cudaMalloc(&d_goalReached, sizeof(bool));
 
     cudaMemcpy(d_relPos, relPos, NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
     cudaMemcpy(d_relNeg, relNeg, NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
     cudaMemcpy(d_s, s, NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
     cudaMemcpy(d_CA, CA, NUM_CA_RULES * 4 * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
 
-    int blockSize = 1;
+    cudaMemcpy(d_worksetOutIndex, &worksetOutIndex, sizeof(int), cudaMemcpyHostToDevice);
 
-    dim3 gridDim(blockSize);
+    cudaMemcpy(d_goalReached, &goalReached, sizeof(int), cudaMemcpyHostToDevice);
+
+    dim3 gridDim(MAX_STATES_WORKSET);
     dim3 blockDim(NUM_USERS, NUM_CA_RULES, NUM_ROLES);
 
     map<string, int> stateIdMap;
     vector<State> pendingStates;
     int idCounter = 0;
 
+    // for (int n = 0; n < MAX_STATES_WORKSET; ++n) {
+    //     for (int i = 0; i < NUM_USERS; i++) {
+    //         for (int j = 0; j < NUM_ROLES; j++) {
+    //             cout << worksetIn[n * NUM_USERS * NUM_ROLES + i * NUM_ROLES + j] << " ";
+    //         }
+    //         cout << endl;
+    //     }
+    // }
+
     while (!pendingStates.empty()) {
         cudaMemcpy(d_worksetOut, worksetOut, MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
-        closure_kernel<<<gridDim, blockDim>>>(d_worksetOut, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES);
+        closure_kernel<<<gridDim, blockDim>>>(d_worksetOut, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES, goalUser, goalRole, d_goalReached);
         cudaMemcpy(worksetOut, d_worksetOut, MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyDeviceToHost);
 
         for (int i = 0; i < 5 * MAX_STATES_WORKSET; i++) {
@@ -110,15 +134,19 @@ int main() {
                 pendingStates.push_back(currentState);
             }
         }
-        for (int i = 0; i < blockSize; i++) {
+        for (int i = 0; i < MAX_STATES_WORKSET; i++) {
             // Assign new worksetIn
-            worksetIn[i] = pendingStates[i].s;
+            for (int j = 0; j < NUM_USERS * NUM_ROLES; ++j) {
+                worksetIn[i * NUM_USERS * NUM_ROLES + j] = pendingStates[i].s[j];
+            }
             pendingStates.erase(pendingStates.begin());
         }
         cudaMemcpy(d_worksetIn, worksetIn, MAX_STATES_WORKSET * NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyHostToDevice);
-        analysis_kernel<<<gridDim, blockDim>>>(worksetIn, worksetOut, )
-            cudaMemcpy(worksetOut, d_worksetOut, MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyDeviceToHost);
+        analysis_kernel<<<gridDim, blockDim>>>(d_worksetIn, d_worksetOut, d_worksetOutIndex, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES, goalUser, goalRole, d_goalReached);
+        cudaMemcpy(worksetOut, d_worksetOut, MAX_STATES_WORKSET * 5 * NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyDeviceToHost);
     }
+
+    // closure_kernel<<<gridDim, blockDim>>>(d_s, d_CA, d_relPos, d_relNeg, NUM_USERS, NUM_CA_RULES, NUM_ROLES);
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -128,19 +156,26 @@ int main() {
 
     cudaDeviceSynchronize();
 
+    cudaMemcpy(&goalReached, d_goalReached, sizeof(int), cudaMemcpyDeviceToHost);
+
+    printf("Goal Reached: %d", goalReached);
+
     cudaMemcpy(s, d_s, NUM_USERS * NUM_ROLES * sizeof(bool), cudaMemcpyDeviceToHost);
 
-    for (int i = 0; i < NUM_USERS; i++) {
-        for (int j = 0; j < NUM_ROLES; j++) {
-            cout << s[i * NUM_ROLES + j] << " ";
-        }
-        cout << endl;
-    }
+    // for (int i = 0; i < NUM_USERS; i++) {
+    //     for (int j = 0; j < NUM_ROLES; j++) {
+    //         cout << s[i * NUM_ROLES + j] << " ";
+    //     }
+    //     cout << endl;
+    // }
 
     cudaFree(d_relPos);
     cudaFree(d_relNeg);
     cudaFree(d_s);
     cudaFree(d_CA);
+    cudaFree(d_worksetIn);
+    cudaFree(d_worksetOut);
+    cudaFree(d_worksetOutIndex);
 
     return 0;
 }

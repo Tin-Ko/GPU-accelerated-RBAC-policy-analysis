@@ -26,6 +26,3 @@ std::string getStateAscii(bool *state) {
 
     return stateAscii;
 }
-
-int getStateHex(const bool *state) {
-}

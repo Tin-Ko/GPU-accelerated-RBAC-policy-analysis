@@ -5,7 +5,8 @@
 
 __global__ void closure_kernel(bool *workset,
                                bool *relCanAssign, bool *relPos, bool *relNeg,
-                               int numUsers, int numRules, int numRoles) {
+                               int numUsers, int numRules, int numRoles,
+                               int goalUser, int goalRole, int *goalReached) {
     // int tid = threadIdx.x;
     int user = threadIdx.x + 1; // Starts from user 1
     int rule = threadIdx.y;
@@ -17,6 +18,8 @@ __global__ void closure_kernel(bool *workset,
     }
 
     // Size of condition flags is NUM_USERS * NUM_CA_RULES, because each thread is responsible for a (user, rule, role)
+    // Each element of condXFlag corresponds to each (user, rule) pair
+    // #SuperSmartDesign
     __shared__ int cond2Flag[NUM_USERS * NUM_CA_RULES];
     __shared__ int cond3Flag[NUM_USERS * NUM_CA_RULES];
     __shared__ int cond4Flag[NUM_USERS * NUM_CA_RULES];
@@ -66,6 +69,7 @@ __global__ void closure_kernel(bool *workset,
 
     __syncthreads();
 
+    // For each (rule, user, role) pair, write run the conditions, and write to the state[user][role]
     if (cond2Flag[user * numRules + rule] == 1)
         cond2 = false;
     if (cond3Flag[user * numRules + rule] == 1)
@@ -76,9 +80,14 @@ __global__ void closure_kernel(bool *workset,
     bool allCond = cond1 && cond2 && cond3 && cond4;
 
     if (allCond) {
-        workset[stateIndex * stateSize + user * numRoles + role] = workset[stateIndex * stateSize + user * numRoles + role] || allCond;
-        workset[stateIndex * stateSize + role] = workset[stateIndex * stateSize + role] || allCond;
+        workset[stateIndex * stateSize + user * numRoles + role] = 1;
+        workset[stateIndex * stateSize + role] = 1;
     }
 
     __syncthreads();
+
+    if (user == goalUser && role == goalRole) {
+        atomicExch(goalReached, 1);
+        return;
+    }
 }

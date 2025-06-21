@@ -11,19 +11,16 @@
 
 using namespace std;
 
-__global__ void analysis_kernel(bool *worksetIn, bool *worksetOut, int worksetOutIndex,
+__global__ void analysis_kernel(bool *worksetIn, bool *worksetOut, int *worksetOutIndex,
                                 bool *relCanAssign, bool *relPos, bool *relNeg,
-                                int numUsers, int numRules, int numRoles) {
+                                int numUsers, int numRules, int numRoles,
+                                int goalUser, int goalRole, int *goalReached) {
     int user = threadIdx.x + 1;
     int rule = threadIdx.y;
     int stateIndex = blockIdx.x; // This thread deals with worksetIn[stateIndex]
     int blockSize = blockDim.x * blockDim.y * blockDim.z;
 
-    int blockStateCounter[blockSize]; // need to be locked
-
     int stateSize = numUsers * numRoles;
-
-    // should be defined in main function
 
     if (user >= numUsers || rule >= numRules) {
         return;
@@ -83,12 +80,15 @@ __global__ void analysis_kernel(bool *worksetIn, bool *worksetOut, int worksetOu
     __syncthreads();
 
     if (allCond) {
-        bool newState[numUsers * numRoles] = worksetIn[stateIndex * stateSize + user * numRoles + role];
-        worksetOut[worksetOutIndex * stateSize + user * numRoles + role] = worksetIn[stateIndex * stateSize + user * numRoles + role] || allCond;
-        worksetOut[worksetOutIndex * stateSize + role] = worksetIn[stateIndex * stateSize + role] || allCond;
-        // int offset = (5 * blockDim.x + blockStateCounter[blockDim.x] * numUsers * numRoles);
-        // blockStateCounter[blockDim.x]++;
+        atomicAdd(worksetOutIndex, 1);
+        worksetOut[*worksetOutIndex * stateSize + user * numRoles + role] = 1;
+        worksetOut[*worksetOutIndex * stateSize + role] = 1;
     }
 
     __syncthreads();
+
+    if (user == goalUser && role == goalRole) {
+        atomicExch(goalReached, 1);
+        return;
+    }
 }
